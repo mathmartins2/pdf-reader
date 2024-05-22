@@ -1,6 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { readFile, readdir } from 'fs/promises';
-import * as pdf from 'pdf-parse';
 import * as path from 'path';
 import { clientLineRegex } from './regex/client-line.regex';
 import { referenceMonthRegex } from './regex/reference-month.regex';
@@ -17,17 +16,21 @@ import {
   electricCompensadaGdRegex,
 } from './regex/electric-compensada-gd.regex';
 import { contribIlumPublicaMunicipalRegex } from './regex/contrib-ilum-publica-municipal.regex';
+import { InvoiceData } from '../invoice/interfaces';
+import { PdfAbstract } from './implementation/abstract/pdf.abstract';
 
 @Injectable()
 export class PdfService {
   private readonly logger = new Logger(PdfService.name);
 
-  async extractPdf() {
+  constructor(private readonly pdfAbstract: PdfAbstract) {}
+
+  async extractPdf(): Promise<InvoiceData[]> {
     const files = await this.getAllPdfFiles('faturas');
-    const results = [];
+    const results: InvoiceData[] = [];
     for (const file of files) {
       const data = await this.processPdf(file);
-      results.push({ file, data });
+      results.push({ ...data });
     }
     return results;
   }
@@ -46,7 +49,7 @@ export class PdfService {
 
   async processPdf(filePath: string) {
     const buffer = await readFile(filePath);
-    const { text } = await pdf(buffer);
+    const text = await this.pdfAbstract.parse(buffer);
     const normalizedText = text.replace(/\s+/g, ' ');
     this.logger.log(`Processing file: ${filePath}`);
     return {
@@ -57,13 +60,14 @@ export class PdfService {
       electricCompensadaGd: this.extractElectricCompensadaGd(normalizedText),
       contribIlumPublicaMunicipal:
         this.extractContribIlumPublicaMunicipal(normalizedText),
+      code: filePath.split('/')[2],
     };
   }
 
   extractClientLine(text: string) {
     const clientLineMatches = clientLineRegex.exec(text);
     const clientLine = clientLineMatches?.[1]?.trim();
-    return +clientLine?.split(/\s+/)?.filter((part) => /^\d+$/.test(part))?.[0];
+    return clientLine?.split(/\s+/)?.filter((part) => /^\d+$/.test(part))?.[0];
   }
 
   extractReferenceMonth(text: string) {
